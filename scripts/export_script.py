@@ -1,8 +1,11 @@
-import debugpy 
+import os
 
-# debugpy.listen(("0.0.0.0", 5678))  # You can change the port if needed
-# print("Waiting for debugger...")
-# debugpy.wait_for_client()  # Execution will pause here until a debugger connects
+if os.environ.get("CENS_DEBUGPY") == "1":  # set CENS_DEBUGPY=1 to wait for a debugger on port 5678
+    import debugpy
+
+    debugpy.listen(("0.0.0.0", 5678))
+    print("Waiting for debugger...")
+    debugpy.wait_for_client()
 
 import sys
 from pathlib import Path
@@ -114,6 +117,7 @@ class ExportPointCloud(ExporterConfig):
             assert pipeline.datamanager.train_pixel_sampler is not None
             pipeline.datamanager.train_pixel_sampler.num_rays_per_batch = self.num_rays_per_batch # increase batchsize to speed up process at the expense of memory
             
+            # TODO(cens): export_mode / grid_frac are not read anywhere (VanillaDataManager is not used by cens); remove?
             pipeline.datamanager.train_pixel_sampler.config.export_mode = True
             pipeline.datamanager.train_pixel_sampler.kwargs["grid_frac"] = 0.5
 
@@ -122,6 +126,8 @@ class ExportPointCloud(ExporterConfig):
             pipeline.datamanager.train_raybatchstream.num_rays_per_batch = self.num_rays_per_batch
 
             if pipeline.datamanager.config.uniform_grid_sampling:
+                # TODO(cens): no effect - the sampler was already built from config.mask_pattern. To export with
+                # different patterns, set pipeline.datamanager.config.mask_pattern before the first next_train()?
                 pipeline.datamanager.mask_pattern = [5, 4] # mask patterns being used for sampling; different 25s
                 
         # whether the normals should be estimated based on the point cloud (via open3d)
@@ -142,13 +148,11 @@ class ExportPointCloud(ExporterConfig):
             crop_obb=crop_obb,
             std_ratio=self.std_ratio,
         )
-        CONSOLE.print("after generate_point_cloud!!")
         if self.save_world_frame:
             # apply the inverse dataparser transform to the point cloud
             points = np.asarray(pcd.points)
             poses = np.eye(4, dtype=np.float32)[None, ...].repeat(points.shape[0], axis=0)[:, :3, :]
             poses[:, :3, 3] = points
-            CONSOLE.print("inside save_world_frame!!, points dtype: {}, points shape: {}".format(points.dtype, points.shape))
             poses = pipeline.datamanager.train_dataparser_outputs.transform_poses_to_original_space(
                 torch.from_numpy(poses)
             )
@@ -166,10 +170,7 @@ class ExportPointCloud(ExporterConfig):
                 .astype(np.float64, copy=True)  # ensures Open3D gets its own buffer
             )
 
-            CONSOLE.print(f"after poses to numpy!!, points dtype: {points.dtype}, points shape: {points.shape}")
-            # new_pcd = o3d.geometry.PointCloud()
             pcd.points = o3d.utility.Vector3dVector(points)
-            CONSOLE.print("vector3dtovector worked out")  
 
         CONSOLE.print(f":cloud: [bold blue]:Generated {pcd}, post-cleanup.")
         CONSOLE.print("Saving Point Cloud...")

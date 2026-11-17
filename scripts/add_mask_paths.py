@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 import cv2
 import numpy as np
-from nerfstudio.data.mask_patterns import canny_raw_magnitude
+from cens.cens_mask_patterns import canny_raw_magnitude
 
 
 def add_mask_paths_to_transforms(transforms_json_path: str, images_dir: str = 'images', masks_dir: str = 'masks') -> int:
@@ -226,4 +226,5 @@ if __name__ == '__main__':
     # selected_config = reduce_config(selected_config, tmp_path=tpath)
     # 
     # # Check and setup masks if mask_sobel is enabled
+    # TODO(cens): `selected_config` is undefined here (NameError). Build it e.g. from all_methods["cens"]?
     validate_and_setup_masks(selected_config.pipeline.datamanager.mask_pattern, "/wkspace/data/Frederik")

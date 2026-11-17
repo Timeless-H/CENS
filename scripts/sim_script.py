@@ -1,8 +1,11 @@
-import debugpy 
+import os
 
-debugpy.listen(("0.0.0.0", 5678))  # You can change the port if needed
-print("Waiting for debugger...")
-debugpy.wait_for_client()  # Execution will pause here until a debugger connects
+if os.environ.get("CENS_DEBUGPY") == "1":  # set CENS_DEBUGPY=1 to wait for a debugger on port 5678
+    import debugpy
+
+    debugpy.listen(("0.0.0.0", 5678))
+    print("Waiting for debugger...")
+    debugpy.wait_for_client()
 
 import torch
 import numpy as np
@@ -18,7 +21,8 @@ from nerfstudio.data.scene_box import OrientedBox
 from nerfstudio.cameras.cameras import Cameras, CameraType
 from rich.progress import (Progress, TextColumn, BarColumn, TimeRemainingColumn)
 
-from nerfstudio.data.mask_patterns import gen_active_indices_for_pattern
+from cens.cens_mask_patterns import gen_active_indices_for_pattern
+from cens.cens_model import get_pattern_outputs_for_camera_ray_bundle
 # from my_utils import (delaunay_25d, sample_pn_from_mesh, pn_to_poses, camera_data_extract)
 
 
@@ -144,7 +148,7 @@ class ExportSimPointCloud(SimExporterConfig):
                 # === Get model outputs for the ray_bundle ===
                 with torch.no_grad():
                     if self.ugs: # mask ray bundle with sampling pattern
-                        outputs = m_pipeline.model.get_pattern_outputs_for_camera_ray_bundle(ray_bundle, mask_p)
+                        outputs = get_pattern_outputs_for_camera_ray_bundle(m_pipeline.model, ray_bundle, mask_p)
                     else: # get full/random sampling outputs for ray bundle
                         outputs = m_pipeline.model.get_outputs_for_camera_ray_bundle(ray_bundle)
                 rgba = m_pipeline.model.get_rgba_image(outputs, self.rgb_output_name)
