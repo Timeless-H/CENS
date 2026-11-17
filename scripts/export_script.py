@@ -9,9 +9,9 @@ if os.environ.get("CENS_DEBUGPY") == "1":  # set CENS_DEBUGPY=1 to wait for a de
 
 import sys
 from pathlib import Path
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing_extensions import Literal
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 import numpy as np
 import open3d as o3d
 import torch
@@ -24,6 +24,8 @@ from nerfstudio.data.scene_box import OrientedBox
 from nerfstudio.utils.eval_utils import eval_setup
 from nerfstudio.exporter.exporter_utils import generate_point_cloud
 from nerfstudio.utils.rich_utils import CONSOLE
+
+from cens.cens_datamanager import CENSDataManagerConfig
 
 @dataclass
 class ExporterConfig:
@@ -96,11 +98,36 @@ class ExportPointCloud(ExporterConfig):
     """Scale of the oriented bounding box along each axis."""
     num_rays_per_batch: int = 4096 #32768
     """Number of rays to evaluate per batch. Decrease if you run out of memory."""
+    mask_pattern: Optional[List[int]] = field(default_factory=lambda: [5, 4])
+    """UGS pattern used to sample the export rays (indices into pixel_sampler.mask_pattern_name, same format
+    as datamanager.mask_pattern). None keeps the pattern the model was trained with."""
     std_ratio: float = 1.0          # CHANGED BY Hope Akwensi 08.04.2026
     """Threshold based on STD of the average distances across the point cloud to remove outliers."""
     save_world_frame: bool = True
     """If set, saves the point cloud in the same frame as the original dataset. Otherwise, uses the
     scaled and reoriented coordinate space expected by the NeRF models."""
+
+    def _update_sampling_config(self, config):
+        """Set the export batch size and sampling pattern before the pipeline (and its DataLoader workers) is built.
+
+        Setting them after eval_setup has no effect: the ray stream is already pickled into the workers.
+        Export sampling starts at step 0: the main pattern is walked first, then random draws from the
+        support pattern (with a Canny pattern [3, ...] the Canny phase comes first).
+        """
+        dm = config.pipeline.datamanager
+        dm.train_num_rays_per_batch = self.num_rays_per_batch
+        if self.mask_pattern is not None:
+            if not isinstance(dm, CENSDataManagerConfig):
+                CONSOLE.print(
+                    "[bold yellow]Warning: not a cens config, mask_pattern is ignored "
+                    "(convert old runs with scripts/migrate_config.py)."
+                )
+            else:
+                dm.uniform_grid_sampling = True
+                dm.mask_pattern = list(self.mask_pattern)
+                names = [dm.pixel_sampler.mask_pattern_name[i] for i in dm.mask_pattern]
+                CONSOLE.print(f"Export sampling pattern: {dm.mask_pattern} {names}")
+        return config
 
     def main(self):
         """export the point cloud."""
@@ -108,7 +135,7 @@ class ExportPointCloud(ExporterConfig):
         if not self.output_dir.exists():
             self.output_dir.mkdir(parents=True)
 
-        _, pipeline, _, _ = eval_setup(self.load_config)
+        _, pipeline, _, _ = eval_setup(self.load_config, update_config_callback=self._update_sampling_config)
 
         validate_pipeline(self.normal_method, self.normal_output_name, pipeline)
 
@@ -116,20 +143,11 @@ class ExportPointCloud(ExporterConfig):
         if isinstance(pipeline.datamanager, VanillaDataManager):
             assert pipeline.datamanager.train_pixel_sampler is not None
             pipeline.datamanager.train_pixel_sampler.num_rays_per_batch = self.num_rays_per_batch # increase batchsize to speed up process at the expense of memory
-            
-            # TODO(cens): export_mode / grid_frac are not read anywhere (VanillaDataManager is not used by cens); remove?
+
             pipeline.datamanager.train_pixel_sampler.config.export_mode = True
             pipeline.datamanager.train_pixel_sampler.kwargs["grid_frac"] = 0.5
+        # ParallelDataManager (cens): batch size and pattern are set in _update_sampling_config.
 
-        elif isinstance(pipeline.datamanager, ParallelDataManager):
-            assert pipeline.datamanager.train_raybatchstream is not None
-            pipeline.datamanager.train_raybatchstream.num_rays_per_batch = self.num_rays_per_batch
-
-            if pipeline.datamanager.config.uniform_grid_sampling:
-                # TODO(cens): no effect - the sampler was already built from config.mask_pattern. To export with
-                # different patterns, set pipeline.datamanager.config.mask_pattern before the first next_train()?
-                pipeline.datamanager.mask_pattern = [5, 4] # mask patterns being used for sampling; different 25s
-                
         # whether the normals should be estimated based on the point cloud (via open3d)
         estimate_normals = False # self.normal_method == "open3d"
         crop_obb = None

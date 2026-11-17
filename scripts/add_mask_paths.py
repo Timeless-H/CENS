@@ -216,15 +216,11 @@ if __name__ == '__main__':
     # Example usage - call validate_and_setup_masks with your config object
     # This should be called after your config is initialized in debug_script.py
     # 
-    # from debug_script import reduce_config
-    # from nerfstudio.configs.method_configs import method_configs
-    # from pathlib import Path
-    # from add_mask_paths import validate_and_setup_masks
-    #
-    # selected_config = method_configs["nerfacto"]
-    # tpath = Path("/wkspace/")
-    # selected_config = reduce_config(selected_config, tmp_path=tpath)
-    # 
-    # # Check and setup masks if mask_sobel is enabled
-    # TODO(cens): `selected_config` is undefined here (NameError). Build it e.g. from all_methods["cens"]?
+    from debug_script import reduce_config
+    from nerfstudio.configs.method_configs import all_methods
+
+    # Note: reduce_config also saves a config.yml under <tmp_path>/outputs/<experiment>/cens/<timestamp>/.
+    selected_config = reduce_config(all_methods["cens"], tmp_path=Path("/wkspace/"))
+
+    # Check and setup masks if mask_sobel is enabled
     validate_and_setup_masks(selected_config.pipeline.datamanager.mask_pattern, "/wkspace/data/Frederik")
