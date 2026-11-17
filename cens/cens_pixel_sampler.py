@@ -55,7 +55,7 @@ class CENSPixelSamplerConfig(PixelSamplerConfig):
     )
     """Pattern names; ``mask_pattern`` indexes into this list."""
     rng_seed: int = 92
-    """Seed of the per-process UGS generator."""
+    """Seed of the UGS generator (DataLoader worker k uses rng_seed + k)."""
     rng_device: str = "cuda"
     """Device of the UGS generator (and of pattern generation). Changing it changes the sampled pixels."""
     # The following are set by CENSDataManagerConfig (passed as kwargs), hence hidden from the CLI.
@@ -84,7 +84,11 @@ class CENSPixelSampler(PixelSampler):
         self.step_provider = self.kwargs.get("step_provider")
         self._local_step = 0
         self._current_step = 0
-        self.g = get_ugs_generator(self.config.rng_seed, self.config.rng_device)
+        # Offset the seed per DataLoader worker: with one seed, all workers would sample identical pixel
+        # coordinates at the same local step (4 workers -> 4 consecutive steps on the same positions).
+        worker_info = get_worker_info()
+        worker_id = worker_info.id if worker_info is not None else 0
+        self.g = get_ugs_generator(self.config.rng_seed + worker_id, self.config.rng_device)
         self.set_max_mask0_iterations(self.kwargs.get("img_nhw", (0, 0, 0)))
 
     def _name(self, pos: int) -> str:
