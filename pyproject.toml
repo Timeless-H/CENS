@@ -8,6 +8,9 @@ dependencies = ["nerfstudio>=1.1.5"]
 [tool.setuptools.packages.find]
 include = ["cens*"]
 
+[project.scripts]
+ns-export-cens = 'cens.cens_exporter:entrypoint'
+
 [project.entry-points.'nerfstudio.method_configs']
 cens = 'cens.cens_config:cens'
 
