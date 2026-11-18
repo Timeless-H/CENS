@@ -1,4 +1,4 @@
-"""CENS model: Nerfacto plus rendering of a subset of pixels (used for nadir/orthophoto simulation)."""
+"""CENS model: Nerfacto plus rendering of only the pixels in a pattern (used by scripts/sim_script.py)."""
 
 from __future__ import annotations
 
