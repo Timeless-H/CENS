@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Type
+from pathlib import Path
+from typing import List, Literal, Optional, Type, Union
+
+import torch
 
 from torch.utils.data import DataLoader
 
@@ -15,6 +18,7 @@ from nerfstudio.data.utils.data_utils import identity_collate
 from nerfstudio.data.utils.dataloaders import RayBatchStream, variable_res_collate
 from nerfstudio.utils.rich_utils import CONSOLE
 
+from cens.cens_masks import prepare_masks
 from cens.cens_pixel_sampler import CENSPixelSamplerConfig, worker_num_images
 
 
@@ -83,6 +87,35 @@ class CENSDataManager(ParallelDataManager[InputDataset]):
     """ParallelDataManager feeding the train step to the CENS sampler."""
 
     config: CENSDataManagerConfig
+
+    def __init__(
+        self,
+        config: CENSDataManagerConfig,
+        device: Union[torch.device, str] = "cpu",
+        test_mode: Literal["test", "val", "inference"] = "val",
+        world_size: int = 1,
+        local_rank: int = 0,
+        **kwargs,
+    ):
+        if test_mode != "inference":  # inference loads no images or masks
+            self._prepare_masks(config)
+        super().__init__(config, device=device, test_mode=test_mode, world_size=world_size, local_rank=local_rank, **kwargs)
+
+    @staticmethod
+    def _prepare_masks(config: CENSDataManagerConfig) -> None:
+        """Generate missing edge masks before the dataparser reads them (see cens.cens_masks).
+
+        Canny runs on a dataset without masks are pointed at transforms_with_masks.json. This only changes
+        the in-memory config; the saved config.yml keeps the original data path, and loading the run again
+        redirects the same way.
+        """
+        if config.data is not None:
+            config.dataparser.data = Path(config.data)
+        pattern = config.mask_pattern if config.uniform_grid_sampling else []
+        new_data = prepare_masks(config.dataparser, pattern, config.pixel_sampler.mask_pattern_name)
+        if new_data is not None:
+            config.data = new_data
+            config.dataparser.data = new_data
 
     def setup_train(self):
         """Same as ParallelDataManager.setup_train, with a CENSRayBatchStream."""
